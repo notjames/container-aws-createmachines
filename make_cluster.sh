@@ -9,10 +9,30 @@ workers()
 
 create_key_material()
 {
+  if ! shred -z -n5 -u "$KEYFILE" 2>/dev/null
+  then
+    if ! rm -rf "$KEYFILE" 2>/dev/null
+    then
+      return 55
+    else
+      echo >&2 "Unable to remove existing keyfile: $KEYFILE"
+    fi
+  fi
+
+  if ! touch "$KEYFILE"; then
+    echo >&2 "Unable to create (touch) new keyfile: $KEYFILE"
+    return 65
+  else
+    if ! chmod 0600 "$KEYFILE"; then
+      echo >&2 "Unable to chmod 0600 $KEYFILE"
+      return 60
+    fi
+  fi
+
   aws ec2 create-key-pair         \
     --key-name "${CLUSTER_ID}Key" \
     --query 'KeyMaterial'         \
-    --output text >> $KEYFILE
+    --output text >> "$KEYFILE"
 }
 
 if [ -z "${CLUSTER_ID}" ]; then
@@ -40,8 +60,6 @@ if ! create_key_material; then
     aws ec2 delete-key-pair --key-name "${CLUSTER_ID}Key"
 
     """
-else
-  chmod 600 $KEYFILE
 fi
 
 PARAMETER_OVERRIDES="CmsId=${CLUSTER_ID}"
