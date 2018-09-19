@@ -127,18 +127,15 @@ if ! jq -c "." <<< "$AWS_INSTANCES" > /dev/null 2>&1; then
   exit 12
 fi
 
-if [[ $(num_instances) != 2 ]]; then
-  echo >&2 "AWS query returned unexpected # of instances. Expected 2 but got $(num_instances)"
-  exit 13
-fi
-
 # build machine-setup data
 # shellcheck disable=SC2089
 MACHINES='{"items":[]}'
 
-for node_type in worker master; do
-  for node in $(get_node $node_type); do
-    NAME="$(generate_name ssh-controlplane)"
+for node_tuple in worker:node master:ssh-controlplane; do
+  IFS=':' read -r node_type NODE_NAME <<< "$node_tuple"
+
+  for node in $(get_node "$node_type"); do
+    NAME="$(generate_name "$NODE_NAME")"
     NODE_ITEM=$(jq --arg name "$NAME"     '.metadata.name=$name' <<< "$NODE"                    |
                 jq --arg node "$node"     '.spec.providerConfig.value.sshConfig.host=$node'     |
                 jq --arg user "$SSH_USER" '.spec.providerConfig.value.sshConfig.username=$user' |
@@ -149,8 +146,8 @@ for node_type in worker master; do
 done
 
 # output the machine-setup ConfigMap
-for item in $(jq -c ".items[]" <<< ${MACHINES}); do
+for item in $(jq -c ".items[]" <<< "$MACHINES"); do
     echo '---'
-    yq.v2 r - <<< ${item}
+    yq.v2 r - <<< "$item"
 done
 
