@@ -320,7 +320,7 @@ Resources:
             #!/bin/bash
             set -o xtrace
             apt-get update
-            adduser --disabled-password --gecos "" ${username}
+            adduser --disabled-password --gecos '' ${username}
             usermod -aG sudo ${username}
             cp -R /home/ubuntu/.ssh/ /home/${username}/
             chown -R ${username}:${username} /home/${username}/.ssh/
@@ -408,6 +408,7 @@ Resources:
         Fn::Base64:
           Fn::Sub: |
             #!/bin/bash
+
             set -o xtrace
 
             apt-get install -y python-setuptools
@@ -420,7 +421,7 @@ Resources:
               --verbose \
               --stack '${AWS::StackName}' \
               --region '${AWS::Region}' \
-              --resource LaunchConfig \
+              --resource LaunchConfig
 
             /usr/local/bin/cfn-signal \
               --exit-code $? \
@@ -428,7 +429,7 @@ Resources:
               --region '${AWS::Region}' \
               --resource K8sNodeGroup
 
-            adduser --disabled-password --gecos "" ${username}
+            adduser --disabled-password --gecos '' ${username}
             usermod -aG sudo ${username}
             cp -R /home/ubuntu/.ssh/ /home/${username}/
             chown -R ${username}:${username} /home/${username}/.ssh/
