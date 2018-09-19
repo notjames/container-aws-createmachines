@@ -1,7 +1,22 @@
 #!/bin/bash
 
+workers()
+{
+  aws ec2 describe-instances \
+    --filters "Name=tag:cms_id,Values=${CLUSTER_ID}" "Name=tag:role,Values=worker" \
+    --query 'Reservations[].Instances[].PublicIpAddress'
+}
+
+create_key_material()
+{
+  aws ec2 create-key-pair         \
+    --key-name "${CLUSTER_ID}Key" \
+    --query 'KeyMaterial'         \
+    --output text >> $KEYFILE
+}
+
 if [ -z "${CLUSTER_ID}" ]; then
-    echo "CLUSTER_ID must be set"
+    echo "CLUSTER_ID must be set. Hint: export CLUSER_ID=<cluster_id>"
     exit 1
 fi
 
@@ -15,9 +30,19 @@ INSTANCE_TYPE=${INSTANCE_TYPE:-m4.large}
 DISK_SIZE_GB=${DISK_SIZE_GB:-40}
 SSH_LOCATION=${SSH_LOCATION:-0.0.0.0/0}
 K8S_NODE_CAPACITY=${K8S_NODE_CAPACITY:-1}
+KEYFILE=${KEYFILE:-$HOME/.ssh/${CLUSTER_ID}Key.pem}
 
-KEYFILE=$(mktemp)
-aws ec2 create-key-pair --key-name "${CLUSTER_ID}Key" --query 'KeyMaterial' --output text >> ${KEYFILE}
+if ! create_key_material; then
+    echo >&2 """
+    Unable to create key material. Was it already created? If so, this can likely be ignored.
+
+    To delete the AWS key use the command:
+    aws ec2 delete-key-pair --key-name "${CLUSTER_ID}Key"
+
+    """
+else
+  chmod 600 $KEYFILE
+fi
 
 PARAMETER_OVERRIDES="CmsId=${CLUSTER_ID}"
 PARAMETER_OVERRIDES="${PARAMETER_OVERRIDES} KeyName=${CLUSTER_ID}Key"
@@ -40,13 +65,10 @@ aws cloudformation deploy --stack-name=${CLUSTER_ID} --template-file=cluster.cf.
     SSHLocation="${SSH_LOCATION}" \
     K8sNodeCapacity="${K8S_NODE_CAPACITY}" | tee ${CREATED}
 
-
 S_TIME=2
-WORKERS=$(aws ec2 describe-instances --filters "Name=tag:cms_id,Values=${CLUSTER_ID}" "Name=tag:role,Values=worker" --query 'Reservations[].Instances[].PublicIpAddress')
-while [ $(jq ". | length" <<< "${WORKERS}") -lt ${K8S_NODE_CAPACITY} ]; do
+while [ $(jq ". | length" <<< "$(workers)") -lt ${K8S_NODE_CAPACITY} ]; do
     sleep ${S_TIME}
     S_TIME=$(( $S_TIME * $S_TIME ))
-    WORKERS=$(aws ec2 describe-instances --filters "Name=tag:cms_id,Values=${CLUSTER_ID}" "Name=tag:role,Values=worker" --query 'Reservations[].Instances[].PublicIpAddress')
 done
 
 export CMS_ID=${CLUSTER_ID} SSH_USER=${CLUSTER_USERNAME}
