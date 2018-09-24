@@ -136,7 +136,7 @@ for node_tuple in worker:node master:ssh-controlplane; do
 
   for node in $(get_node "$node_type"); do
     NAME="$(generate_name "$NODE_NAME")"
-    NODE_ITEM=$(jq --arg name "$NAME"     '.metadata.name=$name' <<< "$NODE"                    |
+    NODE_ITEM=$(jq --arg name "$NAME"     '.metadata.generateName=$name' <<< "$NODE"                    |
                 jq --arg node "$node"     '.spec.providerConfig.value.sshConfig.host=$node'     |
                 jq --arg user "$SSH_USER" '.spec.providerConfig.value.sshConfig.username=$user' |
                 jq -c '[.spec.providerConfig.value.roles=["Master","Etcd"]]')
