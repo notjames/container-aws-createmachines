@@ -84,7 +84,7 @@ aws cloudformation deploy --stack-name=${CLUSTER_ID} --template-file=cluster.cf.
     K8sNodeCapacity="${K8S_NODE_CAPACITY}" | tee ${CREATED}
 
 S_TIME=2
-while [ $(jq ". | length" <<< "$(workers)") -lt ${K8S_NODE_CAPACITY} ]; do
+while [[ $(jq ". | length" <<< "$(workers)") -lt ${K8S_NODE_CAPACITY} ]]; do
     sleep ${S_TIME}
     S_TIME=$(( $S_TIME * $S_TIME ))
 done
