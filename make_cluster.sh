@@ -32,16 +32,16 @@ create_key_material()
   aws ec2 create-key-pair         \
     --key-name "${CLUSTER_ID}Key" \
     --query 'KeyMaterial'         \
-    --output text >> "$KEYFILE"
+    --output text > "$KEYFILE"
 }
 
 if [ -z "${CLUSTER_ID}" ]; then
-    echo "CLUSTER_ID must be set. Hint: export CLUSER_ID=<cluster_id>"
+    echo >&2 "CLUSTER_ID must be set. Hint: export CLUSER_ID=<cluster_id>"
     exit 1
 fi
 
 if [ -z "${AVAILABILITY_ZONE}" ]; then
-    echo "AVAILABILIT_ZONE must be set"
+    echo >&2 "AVAILABILIT_ZONE must be set"
     exit 1
 fi
 
@@ -57,7 +57,7 @@ if ! create_key_material; then
     Unable to create key material. Was it already created? If so, this can likely be ignored.
 
     To delete the AWS key use the command:
-    aws ec2 delete-key-pair --key-name "${CLUSTER_ID}Key"
+    aws ec2 delete-key-pair --key-name ${CLUSTER_ID}Key
 
     """
 fi
@@ -72,7 +72,7 @@ PARAMETER_OVERRIDES="${PARAMETER_OVERRIDES} SSHLocation=${SSH_LOCATION}"
 PARAMETER_OVERRIDES="${PARAMETER_OVERRIDES} K8sNodeCapacity=${K8S_NODE_CAPACITY}"
 
 CREATED=$(mktemp)
-aws cloudformation deploy --stack-name=${CLUSTER_ID} --template-file=cluster.cf.template --capabilities CAPABILITY_IAM \
+aws cloudformation deploy --stack-name="${CLUSTER_ID}" --template-file=cluster.cf.template --capabilities CAPABILITY_IAM \
     --parameter-overrides \
     CmsId="${CLUSTER_ID}" \
     KeyName="${CLUSTER_ID}Key" \
@@ -81,21 +81,24 @@ aws cloudformation deploy --stack-name=${CLUSTER_ID} --template-file=cluster.cf.
     DiskSizeGb="${DISK_SIZE_GB}" \
     AvailabilityZone="${AVAILABILITY_ZONE}" \
     SSHLocation="${SSH_LOCATION}" \
-    K8sNodeCapacity="${K8S_NODE_CAPACITY}" | tee ${CREATED}
+    K8sNodeCapacity="${K8S_NODE_CAPACITY}" | tee "${CREATED}"
 
 S_TIME=2
 while [[ $(jq ". | length" <<< "$(workers)") -lt ${K8S_NODE_CAPACITY} ]]; do
     sleep ${S_TIME}
-    S_TIME=$(( $S_TIME * $S_TIME ))
+    S_TIME=$(( S_TIME * S_TIME ))
 done
 
 export CMS_ID=${CLUSTER_ID} SSH_USER=${CLUSTER_USERNAME}
 
 if [ -z "${KUBERNETES_SERVICE_HOST}" ]; then
-    . ./configure
-    echo
-    cat ${KEYFILE}
+  # shellcheck disable=SC1091
+  . ./configure
+  cat >&2 "$KEYFILE"
 else
+  # shellcheck disable=SC1091
     . ./configure | kubectl apply -f -
-    kubectl create secret generic ${CLUSTER_ID}PrivateKey --from-file=${KEYFILE}
+    kubectl create secret generic "${CLUSTER_ID}PrivateKey" --from-file="${KEYFILE}"
 fi
+
+echo "Use $CREATED for machines.yaml"
