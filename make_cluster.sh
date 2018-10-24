@@ -9,22 +9,24 @@ workers()
 
 create_key_material()
 {
-  if ! shred -z -n5 -u "$KEYFILE" 2>/dev/null
+  if ! shred -z -n5 -u "${KEYFILE}" 2>/dev/null
   then
-    if ! rm -rf "$KEYFILE" 2>/dev/null
+    if -f "${KEYFILE}"
     then
-      return 55
-    else
-      echo >&2 "Unable to remove existing keyfile: $KEYFILE"
+      if ! rm -rf "${KEYFILE}" 2>/dev/null
+      then
+        echo >&2 "Unable to remove existing keyfile: ${KEYFILE}"
+        return 55
+      fi
     fi
   fi
 
-  if ! touch "$KEYFILE"; then
-    echo >&2 "Unable to create (touch) new keyfile: $KEYFILE"
+  if ! touch "${KEYFILE}"; then
+    echo >&2 "Unable to create (touch) new keyfile: ${KEYFILE}"
     return 65
   else
-    if ! chmod 0600 "$KEYFILE"; then
-      echo >&2 "Unable to chmod 0600 $KEYFILE"
+    if ! chmod 0600 "${KEYFILE}"; then
+      echo >&2 "Unable to chmod 0600 ${KEYFILE}"
       return 60
     fi
   fi
@@ -35,22 +37,44 @@ create_key_material()
     --output text > "$KEYFILE"
 }
 
+create_machines_yaml()
+{
+  # shellcheck disable=SC1091
+  . ./configure > "${OUTDIR}/machines-$(date +%Y%m%dT%H%M%S).yaml"
+}
+
+[[ ! -x $(which jq) ]] && \
+  {
+    echo >&2 "Please install 'jq'. It is required for this script to work."
+    exit 25
+  }
+
 if [ -z "${CLUSTER_ID}" ]; then
     echo >&2 "CLUSTER_ID must be set. Hint: export CLUSER_ID=<cluster_id>"
     exit 1
 fi
 
 if [ -z "${AVAILABILITY_ZONE}" ]; then
-    echo >&2 "AVAILABILIT_ZONE must be set"
+    echo >&2 "AVAILABILITY_ZONE must be set"
     exit 1
 fi
 
-CLUSTER_USERNAME=${CLUSTER_USERNAME:-ubuntu}
+# courtesy of SO (/questions/630372/determine-the-path-of-the-executing-bash-script)
+BASEDIR=$(cd -P -- "$(dirname -- "$0")" && pwd -P)
+OUTDIR=${BASEDIR}/out
 INSTANCE_TYPE=${INSTANCE_TYPE:-m4.large}
 DISK_SIZE_GB=${DISK_SIZE_GB:-40}
 SSH_LOCATION=${SSH_LOCATION:-0.0.0.0/0}
 K8S_NODE_CAPACITY=${K8S_NODE_CAPACITY:-1}
 KEYFILE=${KEYFILE:-$HOME/.ssh/${CLUSTER_ID}Key.pem}
+INSTANCE_OS_NAME=${INSTANCE_OS_NAME:-centos}
+CLUSTER_USERNAME=${CLUSTER_USERNAME:-$INSTANCE_OS_NAME}
+INSTANCE_OS_VER=${INSTANCE_OS_VER:-7.4}
+CLUSTER_TEMPLATE="cluster-${INSTANCE_OS_NAME}-${INSTANCE_OS_VER}-cf.template"
+CREATED=$(mktemp)
+S_TIME=2
+
+export CMS_ID=${CLUSTER_ID} SSH_USER=${CLUSTER_USERNAME}
 
 if ! create_key_material; then
     echo >&2 """
@@ -71,8 +95,22 @@ PARAMETER_OVERRIDES="${PARAMETER_OVERRIDES} AvailabilityZone=${AVAILABILITY_ZONE
 PARAMETER_OVERRIDES="${PARAMETER_OVERRIDES} SSHLocation=${SSH_LOCATION}"
 PARAMETER_OVERRIDES="${PARAMETER_OVERRIDES} K8sNodeCapacity=${K8S_NODE_CAPACITY}"
 
+<<<<<<< HEAD
 CREATED=$(mktemp)
 aws cloudformation deploy --stack-name="${CLUSTER_ID}" --template-file=cluster.cf.template --capabilities CAPABILITY_IAM \
+=======
+[[ ! -f "$CLUSTER_TEMPLATE" ]] && \
+  {
+    echo >&2 """
+    The template '${CLUSTER_TEMPLATE}' does not exist in ${BASEDIR}.
+    Please fix your '\$INSTANCE_OS_NAME' and/or '\$INSTANCE_OS_VER' env variables
+    to match a template in ${BASEDIR}.
+    """
+    exit 20
+  }
+
+aws cloudformation deploy --stack-name="${CLUSTER_ID}" --template-file="${CLUSTER_TEMPLATE}" --capabilities CAPABILITY_IAM \
+>>>>>>> master
     --parameter-overrides \
     CmsId="${CLUSTER_ID}" \
     KeyName="${CLUSTER_ID}Key" \
@@ -83,22 +121,22 @@ aws cloudformation deploy --stack-name="${CLUSTER_ID}" --template-file=cluster.c
     SSHLocation="${SSH_LOCATION}" \
     K8sNodeCapacity="${K8S_NODE_CAPACITY}" | tee "${CREATED}"
 
-S_TIME=2
-while [[ $(jq ". | length" <<< "$(workers)") -lt ${K8S_NODE_CAPACITY} ]]; do
+while [[ "$(jq ". | length" <<< "$(workers)")" -lt "${K8S_NODE_CAPACITY}" ]]; do
     sleep ${S_TIME}
-    S_TIME=$(( S_TIME * S_TIME ))
+    S_TIME=$((S_TIME * S_TIME))
 done
 
-export CMS_ID=${CLUSTER_ID} SSH_USER=${CLUSTER_USERNAME}
-
 if [ -z "${KUBERNETES_SERVICE_HOST}" ]; then
-  # shellcheck disable=SC1091
-  . ./configure
-  cat >&2 "$KEYFILE"
+    if create_machines_yaml; then
+      echo "done. The machines.yaml file is located in $OUTDIR."
+    fi
+    echo
+
+    cat "${KEYFILE}"
 else
   # shellcheck disable=SC1091
     . ./configure | kubectl apply -f -
-    kubectl create secret generic "${CLUSTER_ID}PrivateKey" --from-file="${KEYFILE}"
+    kubectl create secret generic "${CLUSTER_ID}"PrivateKey --from-file="${KEYFILE}"
 fi
 
 echo "Use $CREATED for machines.yaml"
