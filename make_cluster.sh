@@ -7,11 +7,11 @@ workers()
     --query 'Reservations[].Instances[].PublicIpAddress'
 }
 
-create_key_material()
+create_new_key()
 {
   if ! shred -z -n5 -u "${KEYFILE}" 2>/dev/null
   then
-    if -f "${KEYFILE}"
+    if [[ -f "${KEYFILE}" ]]
     then
       if ! rm -rf "${KEYFILE}" 2>/dev/null
       then
@@ -31,14 +31,38 @@ create_key_material()
     fi
   fi
 
-  aws ec2 create-key-pair         \
-    --key-name "${CLUSTER_ID}Key" \
-    --query 'KeyMaterial'         \
-    --output text >> "${KEYFILE}"
+  aws ec2 create-key-pair      \
+      --key-name "${CLUSTER_ID}Key" \
+      --query 'KeyMaterial'         \
+      --output text >> "${KEYFILE}"
+}
+
+get_key_material()
+{
+  local key_home key_name private_key public_key
+
+  key_home="${HOME}/.ssh"
+  key_name="${CLUSTER_ID}Key"
+  private_key="${key_home}/${CLUSTER_ID}Key.pem"
+  public_key="${key_home}/${CLUSTER_ID}Key.pub"
+
+  if [[ -f ${private_key} ]]; then
+    ssh-keygen -t rsa -C "${key_name}" -yf "${private_key}" > "${public_key}"
+
+    if ! aws ec2 import-key-pair \
+        --key-name "${key_name}" \
+        --public-key-material file://"${public_key}"; then
+      create_new_key
+    fi
+  else
+    create_new_key
+  fi
 }
 
 create_machines_yaml()
 {
+  mkdir "${OUTDIR}" >/dev/null 2>&1
+
   # shellcheck disable=SC1091
   . ./configure > "${OUTDIR}/machines-$(date +%Y%m%dT%H%M%S).yaml"
 }
@@ -50,7 +74,7 @@ create_machines_yaml()
   }
 
 if [ -z "${CLUSTER_ID}" ]; then
-    echo "CLUSTER_ID must be set. Hint: export CLUSER_ID=<cluster_id>"
+    echo "CLUSTER_ID must be set. Hint: export CLUSTER_ID=<cluster_id>"
     exit 1
 fi
 
@@ -76,9 +100,12 @@ S_TIME=2
 
 export CMS_ID=${CLUSTER_ID} SSH_USER=${CLUSTER_USERNAME}
 
-if ! create_key_material; then
+if ! get_key_material; then
     echo >&2 """
-    Unable to create key material. Was it already created? If so, this can likely be ignored.
+    This script tries to use existing key material based on your Cluster ID. If key material
+    doesn't exist, this script uses AWS to create new key material. In some cases AWS may
+    attempt to create a key that was neither able to be imported nor uniquely created. In these
+    cases, you may need to run the following command and re-create the CF stack.
 
     To delete the AWS key use the command:
     aws ec2 delete-key-pair --key-name ${CLUSTER_ID}Key
