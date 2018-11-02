@@ -62,7 +62,7 @@ get_key_material()
 {
   local key_home key_name private_key public_key
 
-  key_home="${HOME}/.ssh"
+  key_home="${KEY_HOME}"
   key_name="${CLUSTER_ID}Key"
   private_key="${key_home}/${CLUSTER_ID}Key.pem"
   public_key="${key_home}/${CLUSTER_ID}Key.pub"
@@ -90,7 +90,7 @@ get_key_material()
 
 create_machines_yaml()
 {
-  mkdir "${OUTDIR}" >/dev/null 2>&1
+  mkdir -p "${OUTDIR}" >/dev/null 2>&1
 
   # shellcheck disable=SC1091
   . ./configure > "${OUTDIR}/machines-$(date +%Y%m%dT%H%M%S).yaml"
@@ -115,11 +115,12 @@ fi
 # courtesy of SO (/questions/630372/determine-the-path-of-the-executing-bash-script)
 BASEDIR=$(cd -P -- "$(dirname -- "$0")" && pwd -P)
 OUTDIR=${BASEDIR}/out
+KEY_HOME="${HOME}/.ssh"
 INSTANCE_TYPE=${INSTANCE_TYPE:-m4.large}
 DISK_SIZE_GB=${DISK_SIZE_GB:-40}
 SSH_LOCATION=${SSH_LOCATION:-0.0.0.0/0}
 K8S_NODE_CAPACITY=${K8S_NODE_CAPACITY:-1}
-KEYFILE=${KEYFILE:-$HOME/.ssh/${CLUSTER_ID}Key.pem}
+KEYFILE=${KEYFILE:-$KEY_HOME/${CLUSTER_ID}Key.pem}
 INSTANCE_OS_NAME=${INSTANCE_OS_NAME:-centos}
 CLUSTER_USERNAME=${CLUSTER_USERNAME:-$INSTANCE_OS_NAME}
 INSTANCE_OS_VER=${INSTANCE_OS_VER:-7.4}
@@ -131,15 +132,18 @@ export CMS_ID=${CLUSTER_ID} SSH_USER=${CLUSTER_USERNAME}
 
 if ! get_key_material; then
     echo >&2 """
-    This script tries to use existing key material based on your Cluster ID. If key material
-    doesn't exist, this script uses AWS to create new key material. In some cases AWS may
-    attempt to create a key that was neither able to be imported nor uniquely created. In these
-    cases, you may need to run the following command and re-create the CF stack.
+    This script tries to use existing key material in ${KEY_HOME} based on your Cluster ID.
+    If key material doesn't exist, this script uses AWS to create new key material, which
+    will be stored as ${KEYFILE}. In some cases AWS may attempt to create a key that was
+    neither able to be imported nor uniquely created. In these cases, you may need to run
+    the following command and re-create the CF stack.
 
     To delete the AWS key use the command:
     aws ec2 delete-key-pair --key-name ${CLUSTER_ID}Key
 
     """
+
+    exit 20
 fi
 
 PARAMETER_OVERRIDES="CmsId=${CLUSTER_ID}"
@@ -158,7 +162,7 @@ PARAMETER_OVERRIDES="${PARAMETER_OVERRIDES} K8sNodeCapacity=${K8S_NODE_CAPACITY}
     Please fix your '\$INSTANCE_OS_NAME' and/or '\$INSTANCE_OS_VER' env variables
     to match a template in ${BASEDIR}.
     """
-    exit 20
+    exit 21
   }
 
 aws cloudformation deploy --stack-name="${CLUSTER_ID}" --template-file="${CLUSTER_TEMPLATE}" --capabilities CAPABILITY_IAM \
