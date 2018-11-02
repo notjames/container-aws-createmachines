@@ -7,7 +7,7 @@ workers()
     --query 'Reservations[].Instances[].PublicIpAddress'
 }
 
-create_new_key()
+prep_for_new_key()
 {
   if ! shred -z -n5 -u "${KEYFILE}" 2>/dev/null
   then
@@ -30,11 +30,32 @@ create_new_key()
       return 60
     fi
   fi
+}
 
-  aws ec2 create-key-pair      \
-      --key-name "${CLUSTER_ID}Key" \
-      --query 'KeyMaterial'         \
-      --output text >> "${KEYFILE}"
+create_new_key()
+{
+  if prep_for_new_key; then
+    aws ec2 create-key-pair      \
+        --key-name "${CLUSTER_ID}Key" \
+        --query 'KeyMaterial'         \
+        --output text >> "${KEYFILE}"
+  else
+    return 60
+  fi
+}
+
+key_exists()
+{
+  local key_name
+  key_name=$1
+  [[ -z "${key_name}" ]] && \
+    {
+      echo >&2 "Usage: key_exists(): requires the name of the key to check for in AWS."
+      return 113
+    }
+
+  # shellcheck disable=SC2027,SC2086
+  aws ec2 describe-key-pairs --query "KeyPairs[? KeyName == '"${key_name}"'] | length(@)"
 }
 
 get_key_material()
@@ -49,10 +70,18 @@ get_key_material()
   if [[ -f ${private_key} ]]; then
     ssh-keygen -t rsa -C "${key_name}" -yf "${private_key}" > "${public_key}"
 
+    if [[ $(key_exists "${key_name}") -gt 0 ]]; then
+      aws ec2 delete-key-pair --key-name "${key_name}"
+    fi
+
     if ! aws ec2 import-key-pair \
         --key-name "${key_name}" \
         --public-key-material file://"${public_key}"; then
-      create_new_key
+
+      if ! create_new_key; then
+        echo >&2 "Error creating/importing key material."
+        return 60
+      fi
     fi
   else
     create_new_key
